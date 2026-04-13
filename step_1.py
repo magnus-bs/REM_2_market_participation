@@ -27,12 +27,24 @@ import seaborn as sns
 import os
 import gurobipy as gb
 
-import plot_functions.py as pf
-import useful_functions.py as uf
+import plot_functions as pf
+import useful_functions as uf
 
 #%% Scenario Generation
 
+FARM_CAPACITY_MW = 500
+N_DAYS = 5 # per season, total 20 days
 
+wind_scenarios = uf.wind_scenario_generation(FARM_CAPACITY_MW=FARM_CAPACITY_MW, N_DAYS=N_DAYS)
+
+
+
+
+
+
+
+
+# Balancing Prices:
 
 
 
