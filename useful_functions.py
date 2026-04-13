@@ -1,15 +1,100 @@
 
-
 import os
 import pandas as pd
 import numpy as np
 
+def get_season(month):
+    # Fct to assign season based on month
+    if month in [12, 1, 2]:
+        return "Winter"
+    elif month in [3, 4, 5]:
+        return "Spring"
+    elif month in [6, 7, 8]:
+        return "Summer"
+    else:
+        return "Autumn"
 
-def load_data(data_folder, GENERATORS, WIND_GENERATORS, CONV_GENERATORS, P_wind, C_wind, w_nodes):
+def wind_scenario_generation(FARM_CAPACITY_MW, N_DAYS, data_folder='Data'):
+    """
+    Generates wind power scenarios based on historical data, normalizes them to a specified farm capacity, 
+    and samples a specified number of days per season. 
+    The generated scenarios are saved to a CSV file for future use.
+    """
+
+    # Return if csv already exists
+    if os.path.exists(os.path.join(data_folder, 'wind_scenarios.csv')):
+        print("Wind scenarios already generated. Loading from file.")
+        return pd.read_csv(os.path.join(data_folder, 'wind_scenarios.csv'))
+
+    # Load data on power and capacities
+    df_wind_pwr = pd.read_excel(os.path.join(data_folder, 'wind_pwr.xlsx')) # Wind power data
+    df_wind_cap = pd.read_csv(os.path.join(data_folder, 'wind_cap.csv'), delimiter=';') # Wind power data
+
+    # Parse timestamps as UTC and convert to Danish time
+    df_wind_pwr["startTime"] = pd.to_datetime(df_wind_pwr["startTime"], utc=True).dt.tz_convert("Europe/Copenhagen")
+    df_wind_cap["startTime"] = pd.to_datetime(df_wind_cap["startTime"], utc=True).dt.tz_convert("Europe/Copenhagen")
+
+    # Set index and resample to hourly mean
+    df_wind_pwr_h = (
+        df_wind_pwr.set_index("startTime")["Wind power production - real-time data"]
+        .resample("h")
+        .mean()
+        .reset_index()
+        .rename(columns={"startTime": "TimeDK", "Wind power production - real-time data": "power_MW"})
+    )
+    df_wind_cap_h = (
+        df_wind_cap.set_index("startTime")["Total production capacity used in the wind power forecast"]
+        .resample("h")
+        .mean()
+        .reset_index()
+        .rename(columns={"startTime": "TimeDK", "Total production capacity used in the wind power forecast": "capacity_MW"})
+    )
+
+    # Checked missing data, not significant
+    # Filter out dates where any hour has negative power
+    invalid_dates = df_wind_pwr_h.loc[df_wind_pwr_h['power_MW'] < 0, 'TimeDK'].dt.date.unique()
+    df_wind_pwr_h = df_wind_pwr_h[~df_wind_pwr_h['TimeDK'].dt.date.isin(invalid_dates)]
+
+    # Merge power and capacity data
+    df_wind_h = df_wind_pwr_h.merge(df_wind_cap_h, on="TimeDK", how="left")
+
+    # Normalise:
+    df_wind_h["power_norm_MW"] = (df_wind_h["power_MW"] / df_wind_h["capacity_MW"]) * FARM_CAPACITY_MW
+
+    # Randomly Sample 5 days per season
+    df_wind_h["date"] = df_wind_h["TimeDK"].dt.date
+    df_wind_h["season"] = df_wind_h["TimeDK"].dt.month.map(get_season)
+    sampled_days = (
+        df_wind_h.groupby("season")["date"]
+        .apply(lambda x: pd.Series(x.unique()).sample(n=N_DAYS, random_state=42).values)
+        .explode()
+        .reset_index()
+        .rename(columns={0: "date"})
+    )
+
+    # Pivot to get a day per column and hours as rows
+    # Merge sampled days back, extract hour, then pivot
+    df_wind_scenarios = (
+        df_wind_h.merge(sampled_days, on="date")
+        .assign(hour=lambda x: x["TimeDK"].dt.hour)
+        .groupby(["hour", "date"])["power_norm_MW"].mean()
+        .reset_index()
+        .pivot(index="hour", columns="date", values="power_norm_MW")
+        .rename_axis(index="Hour", columns=None)
+        .reset_index()
+    )
+
+    # Save to csv for later use
+    df_wind_scenarios.to_csv('Data/wind_scenarios.csv', index=False)
+
+    return df_wind_scenarios
+
+
+
+def imb_price_scenario_generation(da_price_scenarios, df_sys_state_scenarios):
+    """
+    Generates imbalance price scenarios based on given DA price and system state scenarios.
+    """
+
     
-    # -------------------- Load raw data -------------------- #
-    df_demand = pd.read_excel(os.path.join(data_folder, 'demand.xlsx')) # Demand data, total and per node per hour
-    df_gen_tech = pd.read_excel(os.path.join(data_folder, 'generator_technical_data.xlsx')) # generator technical data
-    df_gen_cost = pd.read_excel(os.path.join(data_folder, 'generator_costs_initial_state.xlsx')) # generator cost data
-    df_cf_wind = pd.read_csv(os.path.join(data_folder, 'cf_wind.csv')) # wind capacity factors per hour
-    df_trans = pd.read_excel(os.path.join(data_folder, 'transmission_data.xlsx')) # generator technical data
+
