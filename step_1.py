@@ -37,66 +37,35 @@ from itertools import product
 #------------------------------
 
 FARM_CAPACITY_MW = 500
-N_DAYS = 5 # per season, total 20 days
 
-df_wind_scenarios = uf.wind_scenario_generation(FARM_CAPACITY_MW=FARM_CAPACITY_MW, N_DAYS=N_DAYS)
-df_price_scenarios = uf.price_scenario_generation()
-df_imbalance_scenarios = uf.imbalance_scenario_generation()
-
-# Set index to Hour
-df_wind = df_wind_scenarios.set_index("Hour")
-df_price = df_price_scenarios.set_index("Hour")
-df_imb = df_imbalance_scenarios.set_index("Hour")
+# Load scenarios
+df_wind_scenarios = uf.wind_scenario_generation(SCENARIOS_PER_SEASON= 5, FARM_CAPACITY_MW=FARM_CAPACITY_MW)
+df_price_scenarios = uf.price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data')
+df_imbalance_scenarios = uf.imbalance_scenario_generation(N_SCENARIOS=4, hours_per_day=24, data_folder='Data')
 
 # Extract column names for each scenario type
-Omega_prod = df_wind.columns
-Omega_price = df_price.columns
-Omega_imb = df_imb.columns
+Omega_wind = df_wind_scenarios.columns
+Omega_price = df_price_scenarios.columns
+Omega_imb = df_imbalance_scenarios.columns
 
 # Build full scenario space as Cartesian product of the three scenario types
-Omega_full = list(product(Omega_prod, Omega_price, Omega_imb))
+Omega_full = list(product(Omega_wind, Omega_price, Omega_imb))
 
 # Sample scenarios
-SAMPLE_SIZE= 200
+IN_SAMPLE_SIZE= 200
 random.seed(42)
 
-Omega_sample = random.sample(Omega_full, SAMPLE_SIZE)
+# Set of In-sample scenarios for optimisation
+Omega_in = random.sample(Omega_full, IN_SAMPLE_SIZE)
 
-Omega = range(SAMPLE_SIZE)
-T = range(24)
+# Out-of-sample scenarios for ex-post analysis
+Omega_out = list(set(Omega_full) - set(Omega_in))
 
-#%%----------------------------
-# Build parameters
-#------------------------------
-P_real = {}
-lambda_DA = {}
-y = {}
+# Build parameters for in-sample and out-of-sample scenarios
+P_real_in, lambda_DA_in, y_imb_in, lambda_imb_in, pi_in = uf.build_parameters(Omega_in, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
+P_real_out, lambda_DA_out, y_imb_out, lambda_imb_out, pi_out = uf.build_parameters(Omega_out, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
 
-# Map sampled scenarios to their corresponding values in the dataframes
-for w, (p, pr, im) in enumerate(Omega_sample):
-    for t in T:
-        P_real[(t, w)] = df_wind.loc[t, p]
-        lambda_DA[(t, w)] = df_price.loc[t, pr]
-        y[(t, w)] = df_imb.loc[t, im]
 
-# Define imbalance prices based on the imbalance direction
-lambda_up = {
-    (t, w): 1.25 * lambda_DA[(t, w)]
-    for t in T for w in Omega
-}
-
-lambda_down = {
-    (t, w): 0.85 * lambda_DA[(t, w)]
-    for t in T for w in Omega
-}
-
-lambda_imb = {
-    (t, w): lambda_up[(t, w)] if y[(t, w)] > 0 else lambda_down[(t, w)]
-    for t in T for w in Omega
-}
-
-# Define equal probabilities for each scenario
-pi = {w: 1 / len(Omega) for w in Omega}
 
 
 #%% ------------------------------------------------------------------------------

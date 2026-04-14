@@ -14,17 +14,19 @@ def get_season(month):
     else:
         return "Autumn"
 
-def wind_scenario_generation(FARM_CAPACITY_MW, N_DAYS, data_folder='Data'):
+def wind_scenario_generation(SCENARIOS_PER_SEASON, FARM_CAPACITY_MW, data_folder='Data'):
     """
     Generates wind power scenarios based on historical data, normalizes them to a specified farm capacity, 
     and samples a specified number of days per season. 
     The generated scenarios are saved to a CSV file for future use.
     """
 
+    RANDOM_SEED = 42
+
     # Return if csv already exists
     if os.path.exists(os.path.join(data_folder, 'wind_scenarios.csv')):
         print("Wind scenarios already generated. Loading from file.")
-        return pd.read_csv(os.path.join(data_folder, 'wind_scenarios.csv'))
+        return pd.read_csv(os.path.join(data_folder, 'wind_scenarios.csv'), index_col="Hour")
 
     # Load data on power and capacities
     df_wind_pwr = pd.read_excel(os.path.join(data_folder, 'wind_pwr.xlsx')) # Wind power data
@@ -66,7 +68,7 @@ def wind_scenario_generation(FARM_CAPACITY_MW, N_DAYS, data_folder='Data'):
     df_wind_h["season"] = df_wind_h["TimeDK"].dt.month.map(get_season)
     sampled_days = (
         df_wind_h.groupby("season")["date"]
-        .apply(lambda x: pd.Series(x.unique()).sample(n=N_DAYS, random_state=42).values)
+        .apply(lambda x: pd.Series(x.unique()).sample(n=SCENARIOS_PER_SEASON, random_state=RANDOM_SEED).values)
         .explode()
         .reset_index()
         .rename(columns={0: "date"})
@@ -74,7 +76,7 @@ def wind_scenario_generation(FARM_CAPACITY_MW, N_DAYS, data_folder='Data'):
 
     # Pivot to get a day per column and hours as rows
     # Merge sampled days back, extract hour, then pivot
-    df_wind_scenarios = (
+    df_scenarios = (
         df_wind_h.merge(sampled_days, on="date")
         .assign(hour=lambda x: x["TimeDK"].dt.hour)
         .groupby(["hour", "date"])["power_norm_MW"].mean()
@@ -84,42 +86,139 @@ def wind_scenario_generation(FARM_CAPACITY_MW, N_DAYS, data_folder='Data'):
         .reset_index()
     )
 
+    # Set hour as index:
+    df_scenarios.set_index("Hour", inplace=True)
+
     # Save to csv for later use
-    df_wind_scenarios.to_csv('Data/wind_scenarios.csv', index=False)
+    df_scenarios.to_csv('Data/wind_scenarios.csv', index=True)
 
-    return df_wind_scenarios
+    print(f"Saved {len(df_scenarios.columns)} days to {os.path.join(data_folder, 'wind_scenarios.csv')}")
+    print(sampled_days.groupby("season")["date"].count())
+
+    return df_scenarios
 
 
 
-def sys_state_scenario_generation(num_scenarios, hours_per_day=24, data_folder='Data'):
-    """
-    Generates system state scenarios (SI) for a specified number of scenarios and hours per day.
-    The generated scenarios are saved to a CSV file for future use.
-    """
+def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
+
+    RANDOM_SEED = 42
 
     # Return if csv already exists
-    if os.path.exists(os.path.join(data_folder, 'imbalance_scenarios.csv')):
+    if os.path.exists(os.path.join(data_folder, 'price_scenarios.csv')):
+        print("DA price scenarios already generated. Loading from file.")
+        return pd.read_csv(os.path.join(data_folder, 'price_scenarios.csv'), index_col="Hour")
+
+    # Load, filter, parse
+    df = (
+        pd.read_csv(os.path.join(data_folder, 'spotprices.csv'))
+        .pipe(lambda x: x[x["Area"] == "BZN|DK2"])
+        .assign(
+            price=lambda x: pd.to_numeric(x["Day-ahead Price (EUR/MWh)"], errors="coerce"),
+            TimeDK=lambda x: pd.to_datetime(
+                x["MTU (CET/CEST)"].str.split(" - ").str[0],
+                format="%d/%m/%Y %H:%M:%S", errors="coerce"
+            ).dt.tz_localize("Europe/Copenhagen", ambiguous="infer", nonexistent="shift_forward"),
+        )
+        .dropna(subset=["price", "TimeDK"])
+        .assign(
+            date=lambda x: x["TimeDK"].dt.date,
+            hour=lambda x: x["TimeDK"].dt.hour,
+            season=lambda x: x["TimeDK"].dt.month.map(get_season),
+        )
+    )
+
+    # Keep complete 24h days only
+    valid_days = df.groupby("date")["hour"].nunique()
+    df = df[df["date"].isin(valid_days[valid_days == 24].index)]
+
+    # Randomly sample 5 unique days per season.
+    unique_days = df[["date", "season"]].drop_duplicates().sort_values(["season", "date"])
+
+    selected_days = []
+    for season in ["Winter", "Spring", "Summer", "Autumn"]:
+        season_days = unique_days[unique_days["season"] == season]
+        if len(season_days) < SCENARIOS_PER_SEASON:
+            raise ValueError(f"Not enough full days in {season}: found {len(season_days)}, need {SCENARIOS_PER_SEASON}.")
+        selected_days.append(season_days.sample(n=SCENARIOS_PER_SEASON, random_state=RANDOM_SEED, replace=False))
+
+    sampled_days = pd.concat(selected_days, ignore_index=True)
+
+    df_scenarios = (
+        df.merge(sampled_days, on=["date", "season"])
+        [["date", "hour", "price"]]
+        .pivot(index="hour", columns="date", values="price")
+        .rename_axis(index="Hour", columns=None)
+    )
+
+    df_scenarios.to_csv(os.path.join(data_folder, 'price_scenarios.csv'), index=True)
+    print(f"Saved {len(df_scenarios.columns)} days to {os.path.join(data_folder, 'price_scenarios.csv')}")
+    print(sampled_days.groupby("season")["date"].count())
+
+    return df_scenarios
+
+
+def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Data'):
+
+    out_path = os.path.join(data_folder, 'imbalance_scenarios.csv')
+
+    if os.path.exists(out_path):
         print("Imbalance scenarios already generated. Loading from file.")
-        return pd.read_csv(os.path.join(data_folder, 'imbalance_scenarios.csv'))
+        return pd.read_csv(out_path, index_col="Hour")
 
     data = []
+    for s in range(1, N_SCENARIOS + 1):
+        SI = np.random.binomial(1, 0.5, hours_per_day)
+        for h in range(0, hours_per_day):
+            data.append([s, h, SI[h - 1]])
 
-    for s in range(1, num_scenarios+1):
-        SI = np.random.binomial(1, 0.5, hours_per_day)  # 0 or 1
-        for h in range(1, hours_per_day+1):
-            data.append([s, h, SI[h-1]])
+    df_scenarios = (
+        pd.DataFrame(data, columns=["scenario", "hour", "SI"])
+        .pivot(index="hour", columns="scenario", values="SI")
+        .rename_axis(index="Hour", columns=None)
+    )
 
-    df = pd.DataFrame(data, columns=["scenario"], rows=["hour"], data=["SI"])
-    df.to_csv(os.path.join(data_folder, "imbalance_scenarios.csv"), index=False)
-    
-    return df
+    df_scenarios.to_csv(out_path, index=True)
+
+    return df_scenarios
 
 
-def imb_price_scenario_generation(da_price_scenarios, df_sys_state_scenarios):
-    """
-    Generates imbalance price scenarios based on given DA price and system state scenarios.
-    """
-    return None
+def build_parameters(Omega_set, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios, hours = 24):
+    P_real = {}
+    lambda_DA = {}
+    y_imb = {}
 
+    # Define time periods
+    T = range(hours)
+
+    # Set size
+    SAMPLE_SIZE = len(Omega_set)
+
+    # Map sampled scenarios to their corresponding values in the dataframes
+    for w, (p, pr, im) in enumerate(Omega_set):
+        for t in T:
+            P_real[(t, w)] = df_wind_scenarios.loc[t, p]
+            lambda_DA[(t, w)] = df_price_scenarios.loc[t, pr]
+            y_imb[(t, w)] = df_imbalance_scenarios.loc[t, im]
+
+    # Define imbalance prices based on the imbalance direction
+    lambda_up = {
+        (t, w): 1.25 * lambda_DA[(t, w)]
+        for t in T for w in range(SAMPLE_SIZE)
+    }
+
+    lambda_down = {
+        (t, w): 0.85 * lambda_DA[(t, w)]
+        for t in T for w in range(SAMPLE_SIZE)
+    }
+
+    lambda_imb = {
+        (t, w): lambda_up[(t, w)] if y_imb[(t, w)] > 0 else lambda_down[(t, w)]
+        for t in T for w in range(SAMPLE_SIZE)
+    }
+
+    # Define equal probabilities for each scenario
+    pi = {w: 1 / len(Omega_set) for w in range(SAMPLE_SIZE)}
+
+    return P_real, lambda_DA, y_imb, lambda_imb, pi
     
 
