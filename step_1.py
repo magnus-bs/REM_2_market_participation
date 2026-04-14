@@ -64,10 +64,12 @@ Omega_out = list(set(Omega_full) - set(Omega_in))
 P_real_in, lambda_DA_in, y_imb_in, lambda_imb_in, pi_in = uf.build_parameters(Omega_in, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
 P_real_out, lambda_DA_out, y_imb_out, lambda_imb_out, pi_out = uf.build_parameters(Omega_out, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
 
-
 #%% ------------------------------------------------------------------------------
 #                                      Task 1.1                                 
 #   ------------------------------------------------------------------------------
+
+# Set of hours
+T = range(24)
 
 # -------- Define model ---------
 op_model = gb.Model("Profit_Maximization")
@@ -76,18 +78,51 @@ op_model = gb.Model("Profit_Maximization")
 p_DA = op_model.addVars(T, lb=0, ub=FARM_CAPACITY_MW, name="p_DA")
 
 # ------ Objective Function ------
+
 op_model.setObjective(
     gb.quicksum(
-        pi[w] * (
-            lambda_DA[(t, w)] * p_DA[t]
-            + lambda_imb[(t, w)] * (P_real[(t, w)] - p_DA[t])
+        pi_in[w] * (
+            lambda_DA_in[(t, w)] * p_DA[t]
+            + lambda_imb_in[(t, w)] * (P_real_in[(t, w)] - p_DA[t])
         )
-        for t in T for w in Omega
+        for t in T for w in Omega_in
     ),
     gb.GRB.MAXIMIZE
 )
+
 #%% --------- Solution ---------
 op_model.optimize()
+
+#%% --------- Results ----------
+
+print("RESULTS OF ONE-PRICE BALANCING SCHEME:")
+print(40*"-")
+
+# Extract optimal day-ahead offering for each hour
+p_DA_optimal = {t: p_DA[t].X for t in T}
+print("Optimal Day-ahead Offering (MW):")
+for t in T:
+    print(f"Hour {t}: {p_DA_optimal[t]:.2f} MW")
+
+#da ahead price and imbalnce price in each hour
+lambda_DA_avg = {
+    t: sum(pi_in[w] * lambda_DA_in[(t, w)] for w in Omega_in)
+    for t in T
+}
+
+lambda_imb_avg = {
+    t: sum(pi_in[w] * lambda_imb_in[(t, w)] for w in Omega_in)
+    for t in T
+}
+
+# plot optimal offering strategy
+pf.plot_optimal_offering(T, p_DA_optimal, lambda_DA_avg, lambda_imb_avg)
+
+# Calculate expected profit under the optimal offering strategy
+expected_profit = op_model.ObjVal
+print(f"\nExpected Profit under Optimal Offering Strategy: {expected_profit:.2f} DKK")
+
+
 
 
 #%% ------------------------------------------------------------------------------
