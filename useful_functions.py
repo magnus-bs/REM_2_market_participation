@@ -91,10 +91,35 @@ def wind_scenario_generation(FARM_CAPACITY_MW, N_DAYS, data_folder='Data'):
 
 
 
+def sys_state_scenario_generation(num_scenarios, hours_per_day=24, data_folder='Data'):
+    """
+    Generates system state scenarios (SI) for a specified number of scenarios and hours per day.
+    The generated scenarios are saved to a CSV file for future use.
+    """
+
+    # Return if csv already exists
+    if os.path.exists(os.path.join(data_folder, 'imbalance_scenarios.csv')):
+        print("Imbalance scenarios already generated. Loading from file.")
+        return pd.read_csv(os.path.join(data_folder, 'imbalance_scenarios.csv'))
+
+    data = []
+
+    for s in range(1, num_scenarios+1):
+        SI = np.random.binomial(1, 0.5, hours_per_day)  # 0 or 1
+        for h in range(1, hours_per_day+1):
+            data.append([s, h, SI[h-1]])
+
+    df = pd.DataFrame(data, columns=["scenario"], rows=["hour"], data=["SI"])
+    df.to_csv(os.path.join(data_folder, "imbalance_scenarios.csv"), index=False)
+    
+    return df
+
+
 def imb_price_scenario_generation(da_price_scenarios, df_sys_state_scenarios):
     """
     Generates imbalance price scenarios based on given DA price and system state scenarios.
     """
+    return None
 
     
 

@@ -37,7 +37,7 @@ N_DAYS = 5 # per season, total 20 days
 
 wind_scenarios = uf.wind_scenario_generation(FARM_CAPACITY_MW=FARM_CAPACITY_MW, N_DAYS=N_DAYS)
 
-
+sys_state_scenarios = uf.sys_state_scenario_generation(num_scenarios=4, hours_per_day=24)
 
 
 
