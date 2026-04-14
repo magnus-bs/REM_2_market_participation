@@ -1,4 +1,6 @@
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 
@@ -41,3 +43,59 @@ def plot_optimal_offering(T, p_DA_optimal, lambda_DA_avg, lambda_imb_avg):
     plt.title('Optimal Offering vs Prices')
     plt.grid()
     plt.show()
+
+
+
+def plot_profit_distribution(T, Omega, p_DA_optimal, P_real, lambda_DA, lambda_imb):
+    """
+    Computes and plots the profit distribution across scenarios.
+
+    Parameters:
+    -----------
+    T : iterable
+        Set of time periods (e.g. hours)
+    Omega : iterable
+        Set of scenarios
+    p_DA_optimal : dict
+        Optimal day-ahead bids {t: value}
+    P_real : dict
+        Realized production {(t,w): value}
+    lambda_DA : dict
+        Day-ahead prices {(t,w): value}
+    lambda_imb : dict
+        Imbalance prices {(t,w): value}
+
+    Returns:
+    --------
+    None: Displays a histogram of the profit distribution across scenarios.
+    """
+
+    # Compute profit per scenario
+    profit_scenarios = {}
+
+    for w in Omega:
+        profit = 0
+        for t in T:
+            profit += (
+                lambda_DA[(t, w)] * p_DA_optimal[t]
+                + lambda_imb[(t, w)] * (P_real[(t, w)] - p_DA_optimal[t])
+            )
+        profit_scenarios[w] = profit
+
+    # Convert to list
+    profits = list(profit_scenarios.values())
+    mean_profit = np.mean(profits)
+
+    # Plot
+    plt.figure(figsize=(10, 6))
+    plt.hist(profits, bins=20)
+    plt.axvline(mean_profit, linestyle='--', label=f"Mean = {mean_profit:.2f}", color="#ee9a79")
+
+    plt.xlabel("Profit (DKK)")
+    plt.ylabel("Frequency")
+    plt.title("Profit Distribution Across Scenarios")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    return None

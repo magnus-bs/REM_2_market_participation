@@ -122,8 +122,8 @@ pf.plot_optimal_offering(T, p_DA_optimal, lambda_DA_avg, lambda_imb_avg)
 expected_profit = op_model.ObjVal
 print(f"\nExpected Profit under Optimal Offering Strategy: {expected_profit:.2f} DKK")
 
-
-
+# Compute and plot profit distribution across in-sample scenarios
+pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, lambda_imb_in)
 
 #%% ------------------------------------------------------------------------------
 #                                      Task 1.2                                 
