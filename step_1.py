@@ -72,7 +72,7 @@ P_real_out, lambda_DA_out, y_imb_out, lambda_imb_out, pi_out = uf.build_paramete
 T = range(24)
 
 # -------- Define model ---------
-op_model = gb.Model("Profit_Maximization")
+op_model = gb.Model("Profit_Maximization_op")
 
 # ---- Add decision variables ----
 p_DA = op_model.addVars(T, lb=0, ub=FARM_CAPACITY_MW, name="p_DA")
@@ -128,6 +128,77 @@ pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, 
 #%% ------------------------------------------------------------------------------
 #                                      Task 1.2                                 
 #   ------------------------------------------------------------------------------
+
+
+# -------- Define model ---------
+tp_model = gb.Model("Profit_Maximization_tp")
+
+# ---- Add decision variables ----
+p_DA = tp_model.addVars(T, lb=0, ub=FARM_CAPACITY_MW, name="p_DA")
+Delta_tw_up = tp_model.addVars(T, Omega_in, lb=0, name="Delta_up")
+Delta_tw_down = tp_model.addVars(T, Omega_in, lb=0, name="Delta_down")
+
+#%%
+
+# ------ Objective Function ------
+tp_model.setObjective(
+    gb.quicksum(
+        pi_in[w] * (
+            lambda_DA_in[(t, w)] * p_DA[t]
+            + y_imb_in[(t, w)] * (lambda_DA_in[(t, w)] * Delta_tw_up[(t, w)]
+                                 - lambda_imb_in[(t, w)]*Delta_tw_down[(t, w)]) 
+            + (1-y_imb_in[(t, w)]) * (lambda_imb_in[(t, w)] * Delta_tw_up[(t, w)]
+                                      - lambda_DA_in[(t, w)]*Delta_tw_down[(t, w)])
+            
+        )
+        for t in T for w in Omega_in
+    ),
+    gb.GRB.MAXIMIZE
+)
+
+# ------ Constraints ------
+for t in T:
+    for w in Omega_in:
+        tp_model.addConstr(
+            P_real_in[(t, w)]-p_DA[t] == Delta_tw_up[(t, w)] - Delta_tw_down[(t, w)],
+            name=f"Balance_Constraint_t{t}_w{w}"
+        )
+
+#%% --------- Solution ---------
+tp_model.optimize()
+
+
+#%% --------- Results ----------
+
+print("RESULTS OF TWO-PRICE BALANCING SCHEME:")
+print(40*"-")
+
+# Extract optimal day-ahead offering for each hour
+p_DA_optimal = {t: p_DA[t].X for t in T}
+print("Optimal Day-ahead Offering (MW):")
+for t in T:
+    print(f"Hour {t}: {p_DA_optimal[t]:.2f} MW")
+
+#da ahead price and imbalnce price in each hour
+lambda_DA_avg = {
+    t: sum(pi_in[w] * lambda_DA_in[(t, w)] for w in Omega_in)
+    for t in T
+}
+
+lambda_imb_avg = {
+    t: sum(pi_in[w] * lambda_imb_in[(t, w)] for w in Omega_in)
+    for t in T
+}
+
+# plot optimal offering strategy
+pf.plot_optimal_offering(T, p_DA_optimal, lambda_DA_avg, lambda_imb_avg)
+
+# Calculate expected profit under the optimal offering strategy
+expected_profit = tp_model.ObjVal
+print(f"\nExpected Profit under Optimal Offering Strategy: {expected_profit:.2f} DKK")
+
+# Compute and plot profit distribution across in-sample scenarios
+pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, lambda_imb_in)
 
 
 
