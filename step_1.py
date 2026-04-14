@@ -36,10 +36,13 @@ from itertools import product
 # Scenario Generation
 #------------------------------
 
+# Settings:
 FARM_CAPACITY_MW = 500
+IN_SAMPLE_SIZE= 200
+random.seed(42)
 
 # Load scenarios
-df_wind_scenarios = uf.wind_scenario_generation(SCENARIOS_PER_SEASON= 5, FARM_CAPACITY_MW=FARM_CAPACITY_MW)
+df_wind_scenarios = uf.wind_scenario_generation(SCENARIOS_PER_SEASON= 5, FARM_CAPACITY_MW=FARM_CAPACITY_MW, data_folder='Data')
 df_price_scenarios = uf.price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data')
 df_imbalance_scenarios = uf.imbalance_scenario_generation(N_SCENARIOS=4, hours_per_day=24, data_folder='Data')
 
@@ -51,10 +54,6 @@ Omega_imb = df_imbalance_scenarios.columns
 # Build full scenario space as Cartesian product of the three scenario types
 Omega_full = list(product(Omega_wind, Omega_price, Omega_imb))
 
-# Sample scenarios
-IN_SAMPLE_SIZE= 200
-random.seed(42)
-
 # Set of In-sample scenarios for optimisation
 Omega_in = random.sample(Omega_full, IN_SAMPLE_SIZE)
 
@@ -64,8 +63,6 @@ Omega_out = list(set(Omega_full) - set(Omega_in))
 # Build parameters for in-sample and out-of-sample scenarios
 P_real_in, lambda_DA_in, y_imb_in, lambda_imb_in, pi_in = uf.build_parameters(Omega_in, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
 P_real_out, lambda_DA_out, y_imb_out, lambda_imb_out, pi_out = uf.build_parameters(Omega_out, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
-
-
 
 
 #%% ------------------------------------------------------------------------------

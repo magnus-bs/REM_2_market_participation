@@ -100,6 +100,10 @@ def wind_scenario_generation(SCENARIOS_PER_SEASON, FARM_CAPACITY_MW, data_folder
 
 
 def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
+    """
+    Generates day-ahead price scenarios based on historical data, samples a specified number of days per season,
+    and saves the generated scenarios to a CSV file for future use.
+    """
 
     RANDOM_SEED = 42
 
@@ -158,6 +162,11 @@ def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
 
 
 def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Data'):
+    """
+    Generates imbalance scenarios by simulating a binary imbalance signal (SI) for each 
+    hour of the day across a specified number of scenarios.
+    The generated scenarios are saved to a CSV file for future use.
+    """
 
     out_path = os.path.join(data_folder, 'imbalance_scenarios.csv')
 
