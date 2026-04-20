@@ -32,6 +32,7 @@ from itertools import product
 import plot_functions as pf
 import useful_functions as uf
 import plot_settings
+import importlib
 
 
 #%%----------------------------
@@ -47,54 +48,12 @@ random.seed(SEED)
 # Load scenarios
 df_wind_scenarios = uf.wind_scenario_generation(N_SCENARIOS = 20, FARM_CAPACITY_MW=FARM_CAPACITY_MW, data_folder='Data', RANDOM_SEED=SEED)
 df_price_scenarios = uf.price_scenario_generation(N_SCENARIOS = 20, data_folder='Data', RANDOM_SEED=SEED)
-df_imbalance_scenarios = uf.imbalance_scenario_generation(N_SCENARIOS=4, hours_per_day=24, data_folder='Data')
+df_imbalance_scenarios = uf.imbalance_scenario_generation(N_SCENARIOS=4, hours_per_day=24, data_folder='Data', RANDOM_SEED=SEED)
 
-
-
-#%%
-
-def plot_scenarios(df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios, figsize=(10, 3.2), dpi=300):
-    
-    fig, ax1 = plt.subplots(figsize=figsize, dpi=dpi)
-    ax2 = ax1.twinx()
-
-    # --- Wind (left axis) ---
-    for col in df_wind_scenarios.columns:
-        ax1.plot(df_wind_scenarios.index, df_wind_scenarios[col], color='skyblue', alpha=0.8, linewidth=1)
-    #ax1.plot(df_wind_scenarios.index, df_wind_scenarios.mean(axis=1), color='skyblue', marker='o', label='Average Wind Power')
-    ax1.set_ylabel('Power (MW)', color='steelblue')
-    ax1.tick_params(axis='y', labelcolor='steelblue')
-
-    # --- Prices (right axis) ---
-    for col in df_price_scenarios.columns:
-        ax2.plot(df_price_scenarios.index, df_price_scenarios[col], color='coral', alpha=0.6, linewidth=1)
-    #ax2.plot(df_price_scenarios.index, df_price_scenarios.mean(axis=1), color='coral', marker='o', label='Average Day-Ahead Price')
-    ax2.set_ylabel('Price (EUR/MWh)', color='coral')
-    ax2.tick_params(axis='y', labelcolor='coral')
-
-    # --- Formatting ---
-    ax1.set_xlabel('Hour of the Day')
-    ax1.set_xticks(df_wind_scenarios.index)
-    ax1.grid(alpha=0.3)
-
-    # Legend
-    from matplotlib.lines import Line2D
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Line2D([0], [0], color='skyblue', label='Wind Power (MW)'),
-        Line2D([0], [0], color='coral', label='DA Price (EUR/MWh)'),
-    ]
-    ax1.legend(handles=legend_elements, loc='upper left')
-
-    plt.tight_layout()
-    plt.show()
-
-plot_scenarios(df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios)
+pf.plot_scenarios(df_wind_scenarios, df_price_scenarios)
 
 
 #%%
-
-
 
 # Extract column names for each scenario type
 Omega_wind = df_wind_scenarios.columns
@@ -140,10 +99,10 @@ op_model.setObjective(
     gb.GRB.MAXIMIZE
 )
 
-#%% --------- Solution ---------
+# --------- Solution ---------
 op_model.optimize()
 
-#%% --------- Results ----------
+# --------- Results ----------
 
 print("RESULTS OF ONE-PRICE BALANCING SCHEME:")
 print(40*"-")
@@ -166,14 +125,19 @@ lambda_imb_avg = {
 }
 
 # plot optimal offering strategy
-pf.plot_optimal_offering(T, p_DA_optimal, lambda_DA_avg, lambda_imb_avg)
+importlib.reload(pf)
+pf.plot_optimal_offering_prob(T, Omega_in, p_DA_optimal, y_imb_in)
+#pf.plot_optimal_offering(T, p_DA_optimal, lambda_DA_avg, lambda_imb_avg)
+
 
 # Calculate expected profit under the optimal offering strategy
 expected_profit = op_model.ObjVal
-print(f"\nExpected Profit under Optimal Offering Strategy: {expected_profit:.2f} DKK")
+print(f"\nExpected Profit under Optimal Offering Strategy: {expected_profit:.2f} EUR")
 
 # Compute and plot profit distribution across in-sample scenarios
-pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, lambda_imb_in)
+pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, lambda_imb_in, y_imb_in, price_scheme = "one_price")
+
+
 
 #%% ------------------------------------------------------------------------------
 #                                      Task 1.2                                 
@@ -184,21 +148,19 @@ pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, 
 tp_model = gb.Model("Profit_Maximization_tp")
 
 # ---- Add decision variables ----
-p_DA = tp_model.addVars(T, lb=0, ub=FARM_CAPACITY_MW, name="p_DA")
+p_DA_tp = tp_model.addVars(T, lb=0, ub=FARM_CAPACITY_MW, name="p_DA_tp")
 Delta_tw_up = tp_model.addVars(T, Omega_in, lb=0, name="Delta_up")
 Delta_tw_down = tp_model.addVars(T, Omega_in, lb=0, name="Delta_down")
-
-#%%
 
 # ------ Objective Function ------
 tp_model.setObjective(
     gb.quicksum(
         pi_in[w] * (
-            lambda_DA_in[(t, w)] * p_DA[t]
-            + y_imb_in[(t, w)] * (lambda_DA_in[(t, w)] * Delta_tw_up[(t, w)]
-                                 - lambda_imb_in[(t, w)]*Delta_tw_down[(t, w)]) 
-            + (1-y_imb_in[(t, w)]) * (lambda_imb_in[(t, w)] * Delta_tw_up[(t, w)]
-                                      - lambda_DA_in[(t, w)]*Delta_tw_down[(t, w)])
+            lambda_DA_in[(t, w)] * p_DA_tp[t]
+            + y_imb_in[(t, w)] * (lambda_DA_in[(t, w)] * Delta_tw_up[t, *w]
+                                 - lambda_imb_in[(t, w)]*Delta_tw_down[t, *w]) 
+            + (1-y_imb_in[(t, w)]) * (lambda_imb_in[(t, w)] * Delta_tw_up[t, *w]
+                                      - lambda_DA_in[(t, w)]*Delta_tw_down[t, *w])
             
         )
         for t in T for w in Omega_in
@@ -210,21 +172,22 @@ tp_model.setObjective(
 for t in T:
     for w in Omega_in:
         tp_model.addConstr(
-            P_real_in[(t, w)]-p_DA[t] == Delta_tw_up[(t, w)] - Delta_tw_down[(t, w)],
+            P_real_in[(t, w)]-p_DA_tp[t] == Delta_tw_up[t, *w] - Delta_tw_down[t, *w],
             name=f"Balance_Constraint_t{t}_w{w}"
         )
 
-#%% --------- Solution ---------
+# --------- Solution ---------
 tp_model.optimize()
 
 
-#%% --------- Results ----------
+# --------- Results ----------
 
 print("RESULTS OF TWO-PRICE BALANCING SCHEME:")
 print(40*"-")
 
 # Extract optimal day-ahead offering for each hour
-p_DA_optimal = {t: p_DA[t].X for t in T}
+p_DA_tp_optimal = {t: p_DA_tp[t].X for t in T}
+
 print("Optimal Day-ahead Offering (MW):")
 for t in T:
     print(f"Hour {t}: {p_DA_optimal[t]:.2f} MW")
@@ -248,10 +211,8 @@ expected_profit = tp_model.ObjVal
 print(f"\nExpected Profit under Optimal Offering Strategy: {expected_profit:.2f} DKK")
 
 # Compute and plot profit distribution across in-sample scenarios
-pf.plot_profit_distribution(T, Omega_in, p_DA_optimal, P_real_in, lambda_DA_in, lambda_imb_in)
-
-
-
+importlib.reload(pf)
+pf.plot_profit_distribution(T, Omega_in, p_DA_tp_optimal, P_real_in, lambda_DA_in, lambda_imb_in, y_imb_in,  price_scheme = "two_price")
 
 
 

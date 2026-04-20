@@ -80,6 +80,7 @@ def wind_scenario_generation(N_SCENARIOS, FARM_CAPACITY_MW, data_folder='Data', 
     df_scenarios.set_index("Hour", inplace=True)
 
     # Save to csv for later use
+    df_scenarios.columns = [str(c) for c in df_scenarios.columns]
     df_scenarios.to_csv('Data/wind_scenarios.csv', index=True)
 
     print(f"Saved {len(df_scenarios.columns)} days to {os.path.join(data_folder, 'wind_scenarios.csv')}")
@@ -142,18 +143,21 @@ def price_scenario_generation(N_SCENARIOS, data_folder='Data', RANDOM_SEED = 42)
         .rename_axis(index="Hour", columns=None)
     )
 
+    df_scenarios.columns = [str(c) for c in df_scenarios.columns]
     df_scenarios.to_csv(os.path.join(data_folder, 'price_scenarios.csv'), index=True)
     print(f"Saved {len(df_scenarios.columns)} days to {os.path.join(data_folder, 'price_scenarios.csv')}")
 
     return df_scenarios
 
 
-def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Data'):
+def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Data', RANDOM_SEED = 42):
     """
     Generates imbalance scenarios by simulating a binary imbalance signal (SI) for each 
     hour of the day across a specified number of scenarios.
     The generated scenarios are saved to a CSV file for future use.
     """
+
+    np.random.seed(RANDOM_SEED)
 
     out_path = os.path.join(data_folder, 'imbalance_scenarios.csv')
 
@@ -173,52 +177,12 @@ def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Da
         .rename_axis(index="Hour", columns=None)
     )
 
+    df_scenarios.columns = [str(c) for c in df_scenarios.columns]
     df_scenarios.to_csv(out_path, index=True)
 
     return df_scenarios
 
-'''
-def build_parameters(Omega_set, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios, hours = 24):
-    P_real = {}
-    lambda_DA = {}
-    y_imb = {}
 
-    # Define time periods
-    T = range(hours)
-
-    # Set size
-    SAMPLE_SIZE = len(Omega_set)
-
-
-    # Map sampled scenarios to their corresponding values in the dataframes
-    for w, (p, pr, im) in enumerate(Omega_set):
-        for t in T:
-            P_real[(t, w)] = df_wind_scenarios.loc[t, p]
-            lambda_DA[(t, w)] = df_price_scenarios.loc[t, pr]
-            y_imb[(t, w)] = df_imbalance_scenarios.loc[t, im]
-
-    # Define imbalance prices based on the imbalance direction
-    lambda_up = {
-        (t, w): 1.25 * lambda_DA[(t, w)]
-        for t in T for w in range(SAMPLE_SIZE)
-    }
-
-    lambda_down = {
-        (t, w): 0.85 * lambda_DA[(t, w)]
-        for t in T for w in range(SAMPLE_SIZE)
-    }
-
-    lambda_imb = {
-        (t, w): lambda_up[(t, w)] if y_imb[(t, w)] > 0 else lambda_down[(t, w)]
-        for t in T for w in range(SAMPLE_SIZE)
-    }
-
-    # Define equal probabilities for each scenario
-    pi = {w: 1 / len(Omega_set) for w in range(SAMPLE_SIZE)}
-
-    return P_real, lambda_DA, y_imb, lambda_imb, pi
-
-'''
 
 def build_parameters(Omega_set, df_wind, df_price, df_imbalance, hours=24):
 
