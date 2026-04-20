@@ -3,25 +3,12 @@ import os
 import pandas as pd
 import numpy as np
 
-def get_season(month):
-    # Fct to assign season based on month
-    if month in [12, 1, 2]:
-        return "Winter"
-    elif month in [3, 4, 5]:
-        return "Spring"
-    elif month in [6, 7, 8]:
-        return "Summer"
-    else:
-        return "Autumn"
-
-def wind_scenario_generation(SCENARIOS_PER_SEASON, FARM_CAPACITY_MW, data_folder='Data'):
+def wind_scenario_generation(N_SCENARIOS, FARM_CAPACITY_MW, data_folder='Data', RANDOM_SEED = 42):
     """
     Generates wind power scenarios based on historical data, normalizes them to a specified farm capacity, 
-    and samples a specified number of days per season. 
+    divides the year into N_SCENARIOS parts and samples a day randomly from each. 
     The generated scenarios are saved to a CSV file for future use.
     """
-
-    RANDOM_SEED = 42
 
     # Return if csv already exists
     if os.path.exists(os.path.join(data_folder, 'wind_scenarios.csv')):
@@ -63,15 +50,18 @@ def wind_scenario_generation(SCENARIOS_PER_SEASON, FARM_CAPACITY_MW, data_folder
     # Normalise:
     df_wind_h["power_norm_MW"] = (df_wind_h["power_MW"] / df_wind_h["capacity_MW"]) * FARM_CAPACITY_MW
 
-    # Randomly Sample 5 days per season
+    # Divide the year into N_SCENARIOS periods and sample a day randomly from each
     df_wind_h["date"] = df_wind_h["TimeDK"].dt.date
-    df_wind_h["season"] = df_wind_h["TimeDK"].dt.month.map(get_season)
+    all_dates = pd.Series(df_wind_h["date"].unique())
+    all_dates = all_dates.sort_values().reset_index(drop=True)
+    all_dates_df = pd.DataFrame({"date": all_dates})
+    all_dates_df["period"] = pd.cut(all_dates_df.index, bins=N_SCENARIOS, labels=False)
+
     sampled_days = (
-        df_wind_h.groupby("season")["date"]
-        .apply(lambda x: pd.Series(x.unique()).sample(n=SCENARIOS_PER_SEASON, random_state=RANDOM_SEED).values)
-        .explode()
-        .reset_index()
-        .rename(columns={0: "date"})
+        all_dates_df.groupby("period")["date"]
+        .apply(lambda x: x.sample(n=1, random_state=RANDOM_SEED))
+        .reset_index(drop=True)
+        .to_frame()
     )
 
     # Pivot to get a day per column and hours as rows
@@ -93,19 +83,16 @@ def wind_scenario_generation(SCENARIOS_PER_SEASON, FARM_CAPACITY_MW, data_folder
     df_scenarios.to_csv('Data/wind_scenarios.csv', index=True)
 
     print(f"Saved {len(df_scenarios.columns)} days to {os.path.join(data_folder, 'wind_scenarios.csv')}")
-    print(sampled_days.groupby("season")["date"].count())
 
     return df_scenarios
 
 
 
-def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
+def price_scenario_generation(N_SCENARIOS, data_folder='Data', RANDOM_SEED = 42):
     """
-    Generates day-ahead price scenarios based on historical data, samples a specified number of days per season,
+    Generates day-ahead price scenarios based on historical data, samples a day per period with the data divided into N_SCENARIOS periods,
     and saves the generated scenarios to a CSV file for future use.
     """
-
-    RANDOM_SEED = 42
 
     # Return if csv already exists
     if os.path.exists(os.path.join(data_folder, 'price_scenarios.csv')):
@@ -127,7 +114,6 @@ def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
         .assign(
             date=lambda x: x["TimeDK"].dt.date,
             hour=lambda x: x["TimeDK"].dt.hour,
-            season=lambda x: x["TimeDK"].dt.month.map(get_season),
         )
     )
 
@@ -135,20 +121,22 @@ def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
     valid_days = df.groupby("date")["hour"].nunique()
     df = df[df["date"].isin(valid_days[valid_days == 24].index)]
 
-    # Randomly sample 5 unique days per season.
-    unique_days = df[["date", "season"]].drop_duplicates().sort_values(["season", "date"])
+    # Filter out days with negative prices
+    neg_price_dates = df.loc[df['price'] < 0, 'TimeDK'].dt.date.unique()
+    df = df[~df['TimeDK'].dt.date.isin(neg_price_dates)]
 
-    selected_days = []
-    for season in ["Winter", "Spring", "Summer", "Autumn"]:
-        season_days = unique_days[unique_days["season"] == season]
-        if len(season_days) < SCENARIOS_PER_SEASON:
-            raise ValueError(f"Not enough full days in {season}: found {len(season_days)}, need {SCENARIOS_PER_SEASON}.")
-        selected_days.append(season_days.sample(n=SCENARIOS_PER_SEASON, random_state=RANDOM_SEED, replace=False))
-
-    sampled_days = pd.concat(selected_days, ignore_index=True)
+    # Divide into 20 periods and sample 1 day from each
+    all_dates_df = pd.DataFrame({"date": sorted(df["date"].unique())}).reset_index(drop=True)
+    all_dates_df["period"] = pd.cut(all_dates_df.index, bins=N_SCENARIOS, labels=False)
+    sampled_days = (
+        all_dates_df.groupby("period")["date"]
+        .apply(lambda x: x.sample(n=1, random_state=RANDOM_SEED))
+        .reset_index(drop=True)
+        .to_frame()
+    )
 
     df_scenarios = (
-        df.merge(sampled_days, on=["date", "season"])
+        df.merge(sampled_days, on=["date"])
         [["date", "hour", "price"]]
         .pivot(index="hour", columns="date", values="price")
         .rename_axis(index="Hour", columns=None)
@@ -156,7 +144,6 @@ def price_scenario_generation(SCENARIOS_PER_SEASON = 5, data_folder='Data'):
 
     df_scenarios.to_csv(os.path.join(data_folder, 'price_scenarios.csv'), index=True)
     print(f"Saved {len(df_scenarios.columns)} days to {os.path.join(data_folder, 'price_scenarios.csv')}")
-    print(sampled_days.groupby("season")["date"].count())
 
     return df_scenarios
 
