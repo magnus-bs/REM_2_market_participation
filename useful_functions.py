@@ -165,7 +165,7 @@ def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Da
     for s in range(1, N_SCENARIOS + 1):
         SI = np.random.binomial(1, 0.5, hours_per_day)
         for h in range(0, hours_per_day):
-            data.append([s, h, SI[h - 1]])
+            data.append([s, h, SI[h]])
 
     df_scenarios = (
         pd.DataFrame(data, columns=["scenario", "hour", "SI"])
@@ -177,7 +177,7 @@ def imbalance_scenario_generation(N_SCENARIOS, hours_per_day=24, data_folder='Da
 
     return df_scenarios
 
-
+'''
 def build_parameters(Omega_set, df_wind_scenarios, df_price_scenarios, df_imbalance_scenarios, hours = 24):
     P_real = {}
     lambda_DA = {}
@@ -188,6 +188,7 @@ def build_parameters(Omega_set, df_wind_scenarios, df_price_scenarios, df_imbala
 
     # Set size
     SAMPLE_SIZE = len(Omega_set)
+
 
     # Map sampled scenarios to their corresponding values in the dataframes
     for w, (p, pr, im) in enumerate(Omega_set):
@@ -216,5 +217,49 @@ def build_parameters(Omega_set, df_wind_scenarios, df_price_scenarios, df_imbala
     pi = {w: 1 / len(Omega_set) for w in range(SAMPLE_SIZE)}
 
     return P_real, lambda_DA, y_imb, lambda_imb, pi
-    
 
+'''
+
+def build_parameters(Omega_set, df_wind, df_price, df_imbalance, hours=24):
+
+    '''Builds the parameters for the optimization model based on the provided scenario set and dataframes.
+    Parameters:
+    -----------
+    Omega_set (list): List of scenarios, where each scenario is a tuple (production, price, imbalance) representing the indices for wind power, price, and imbalance scenarios.
+    df_wind (pd.DataFrame): DataFrame containing wind power scenarios, indexed by hour and scenario.
+    df_price (pd.DataFrame): DataFrame containing price scenarios, indexed by hour and scenario.
+    df_imbalance (pd.DataFrame): DataFrame containing imbalance scenarios, indexed by hour and scenario.
+    hours (int): Number of hours in the day (default is 24).    
+
+    Returns:
+    -----------
+    P_real (dict): Dictionary containing the real wind power for each hour and scenario.
+    lambda_DA (dict): Dictionary containing the day-ahead price for each hour and scenario.
+    y_imb (dict): Dictionary containing the imbalance signal for each hour and scenario.
+    lambda_imb (dict): Dictionary containing the imbalance price for each hour and scenario.
+    pi (dict): Dictionary containing the probability of each scenario.
+    '''
+
+    P_real = {}
+    lambda_DA = {}
+    y_imb = {}
+    lambda_imb = {}
+
+    T = range(hours)
+
+    for w in Omega_set:  # omega is (p, pr, im)
+        for t in T:
+            P_real[(t, w)] = df_wind.loc[t, w[0]]
+            lambda_DA[(t, w)] = df_price.loc[t, w[1]]
+            y_imb[(t, w)] = df_imbalance.loc[t, w[2]]
+
+    for (t, w) in P_real:
+        lambda_imb[(t, w)] = (
+            1.25 * lambda_DA[(t, w)]
+            if y_imb[(t, w)] == 1
+            else 0.85 * lambda_DA[(t, w)]
+        )
+
+    pi = {w: 1 / len(Omega_set) for w in Omega_set}
+
+    return P_real, lambda_DA, y_imb, lambda_imb, pi
