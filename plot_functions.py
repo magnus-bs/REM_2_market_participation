@@ -3,38 +3,95 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_scenarios(df_wind_scenarios, df_price_scenarios, figsize=(10, 3.2), dpi=300):
-    
-    fig, ax1 = plt.subplots(figsize=figsize, dpi=dpi)
-    ax2 = ax1.twinx()
+def plot_three_panel_scenarios(df_wind_scenarios,
+                               df_price_scenarios,
+                               df_imb_scenarios,
+                               figsize=(10, 2),
+                               dpi=300):
 
-    # --- Wind (left axis) ---
+    fig, axes = plt.subplots(1, 3, figsize=figsize, dpi=dpi)
+
+    ax1, ax2, ax3 = axes
+
+    # -------------------------
+    # (a) WIND SCENARIOS
+    # -------------------------
     for col in df_wind_scenarios.columns:
-        ax1.plot(df_wind_scenarios.index, df_wind_scenarios[col], color='skyblue', alpha=0.8, linewidth=1)
-    #ax1.plot(df_wind_scenarios.index, df_wind_scenarios.mean(axis=1), color='skyblue', marker='o', label='Average Wind Power')
-    ax1.set_ylabel('Power (MW)', color='steelblue')
-    ax1.tick_params(axis='y', labelcolor='steelblue')
+        ax1.plot(df_wind_scenarios.index,
+                 df_wind_scenarios[col],
+                 color='skyblue',
+                 alpha=0.7,
+                 linewidth=1)
 
-    # --- Prices (right axis) ---
-    for col in df_price_scenarios.columns:
-        ax2.plot(df_price_scenarios.index, df_price_scenarios[col], color='coral', alpha=0.6, linewidth=1)
-    #ax2.plot(df_price_scenarios.index, df_price_scenarios.mean(axis=1), color='coral', marker='o', label='Average Day-Ahead Price')
-    ax2.set_ylabel('Price (EUR/MWh)', color='coral')
-    ax2.tick_params(axis='y', labelcolor='coral')
-
-    # --- Formatting ---
-    ax1.set_xlabel('Hour of the Day')
-    ax1.set_xticks(df_wind_scenarios.index)
+    ax1.set_title("(a) Wind Scenarios")
+    ax1.set_xlabel("Hour")
+    ax1.set_ylabel("Power (MW)")
     ax1.grid(alpha=0.3)
 
-    # Legend
-    from matplotlib.lines import Line2D
+    # -------------------------
+    # (b) PRICE SCENARIOS
+    # -------------------------
+    T = df_price_scenarios.index
+    T_plot = list(T) + [T[-1] + 1]
+    for col in df_price_scenarios.columns:
+        y = df_price_scenarios[col].values
+        y_plot = list(y) + [y[-1]]  # repeat last value
+
+        ax2.step(
+            T_plot,
+            y_plot,
+            where="post",
+            color='coral',
+            alpha=0.6,
+            linewidth=1
+        )
+
+    ax2.set_title("(b) Price Scenarios")
+    ax2.set_xlabel("Hour")
+    ax2.set_ylabel("EUR/MWh")
+    ax2.grid(alpha=0.3)
+
+    # -------------------------
+    # (c) IMBALANCE HEATMAP
+    # -------------------------
+    im = ax3.imshow(
+        df_imb_scenarios.values.T,
+        aspect='auto',
+        cmap='BuPu',
+        interpolation='nearest',
+        alpha = 0.4
+    )
+
+    ax3.set_title("(c) Imbalance Scenarios")
+    ax3.set_xlabel("Hour")
+    ax3.set_ylabel("Scenario")
+
+    ax3.set_yticks(np.arange(df_imb_scenarios.shape[1]))
+    ax3.set_yticklabels([f"ω{i+1}" for i in range(df_imb_scenarios.shape[1])])
+
+    # Colorbar
     from matplotlib.patches import Patch
     legend_elements = [
-        Line2D([0], [0], color='skyblue', label='Wind Power (MW)'),
-        Line2D([0], [0], color='coral', label='DA Price (EUR/MWh)'),
+        Patch(facecolor="#f0f0f0", label="(0)"),
+        Patch(facecolor="#c26bcea1", label="(1)")
     ]
-    ax1.legend(handles=legend_elements, loc='upper left', ncol=2)
+
+    ax3.legend(
+        handles=legend_elements,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        frameon=False,
+        ncol=1
+    )
+
+    # -------------------------
+    # FINAL FORMATTING
+    # -------------------------
+    for ax in [ax1, ax2, ax3]:
+        ax.set_xticks(range(0,25,1))
+        ax.set_xticklabels(
+            [str(i) if i % 4 == 0 else "" for i in range(25)]
+        )
 
     plt.tight_layout()
     plt.show()
@@ -105,31 +162,37 @@ def plot_optimal_offering_prob(T, Omega_in, p_DA_optimal, y_imb):
 
     fig, ax1 = plt.subplots(figsize=(10, 3))
 
-    # Left axis: power
-    #ax1.step(T_steps, [p_DA_optimal[t] for t in T] + [p_DA_optimal[T[-1]]],
-     #        where='pre', label='Optimal Offering (MW)', color="#118ee7")
+    # Left axis: power 
+    # (we add a starting and end position)
+    T_plot = [T[0]] + list(T) + [T[-1] + 1]
+    p_plot = [0] + [p_DA_optimal[t] for t in T] + [0]
 
-    ax1.step(T_steps, [p_DA_optimal[t] for t in T] + [p_DA_optimal[T[-1]]],
-             where='pre', label='Optimal Offering (MW)', color= "#118ee7")
-    ax1.set_xlabel('Hour')
-    ax1.set_ylabel('Power (MW)')
-    ax1.set_xticks(T_steps)
+    ax1.step(
+        T_plot,
+        p_plot,
+        where='post',
+        label='Optimal Offering (MW)',
+        color="#118ee7"
+    )
 
     # Right axis: probability
     ax2 = ax1.twinx()
     ax2.fill_between(
         T_steps,
         [prob[t] for t in T] + [prob[T[-1]]],
-        step='pre',
+        step='post',
         color="#e7a011",
         alpha=0.15,
         label="P(deficit) per hour"
     )
 
+    ax1.set_ylabel('Power (MW)')
     ax2.set_ylabel('Probability of Deficit')
     ax2.set_ylim(0, 1)
-    ax1.set_ylim(0,500)
+    ax1.set_ylim(0,510)
+    ax1.set_xticks(range(0,25,1))
     ax1.set_yticks(range(0,550,100))
+    ax1.set_xlabel("Hour of the Day")
     ax2.axhline(y=0.375, color="#ca7900", linestyle='-', linewidth=1.2, label='Threshold (p=0.375)')
 
     # Combined legend

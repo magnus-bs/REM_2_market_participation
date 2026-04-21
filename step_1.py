@@ -50,7 +50,13 @@ df_wind_scenarios = uf.wind_scenario_generation(N_SCENARIOS = 20, FARM_CAPACITY_
 df_price_scenarios = uf.price_scenario_generation(N_SCENARIOS = 20, data_folder='Data', RANDOM_SEED=SEED)
 df_imbalance_scenarios = uf.imbalance_scenario_generation(N_SCENARIOS=4, hours_per_day=24, data_folder='Data', RANDOM_SEED=SEED)
 
-pf.plot_scenarios(df_wind_scenarios, df_price_scenarios)
+importlib.reload(pf)
+pf.plot_three_panel_scenarios(df_wind_scenarios,
+                               df_price_scenarios,
+                               df_imbalance_scenarios,
+                               figsize=(12, 3.),
+                               dpi=300)
+
 
 
 #%%
